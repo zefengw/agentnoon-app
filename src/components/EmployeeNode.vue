@@ -4,6 +4,7 @@
     <div 
       class="employee-card"
       :class="{ 'has-children': employee.children?.length > 0 }"
+      :data-employee-id="employee.id"
       @click="toggleExpand"
     >
       <!-- Avatar Circle -->
@@ -59,7 +60,7 @@
     <!-- Children Container -->
     <transition name="expand">
       <div 
-        v-if="isExpanded && employee.children?.length"
+        v-if="isNodeExpanded && employee.children?.length"
         class="children-container"
       >
         <div class="children-wrapper">
@@ -77,7 +78,7 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, inject, computed, watch, onMounted } from 'vue'
 
 export default {
   name: 'EmployeeNode',
@@ -87,11 +88,31 @@ export default {
       required: true
     }
   },
-  setup() {
-    const isExpanded = ref(false)
+  emits: ['tree-width-update'],
+  setup(props, { emit }) {
+    const expandedNodes = inject('expandedNodes')
+    const toggleNodeExpansion = inject('toggleNodeExpansion')
+
+    const isNodeExpanded = computed(() => {
+      return expandedNodes.value.has(props.employee.id)
+    })
+
+    // Watch for changes in children visibility and emit width updates
+    watch(() => isNodeExpanded.value, (newVal) => {
+      if (newVal && props.employee.children) {
+        emit('tree-width-update', props.employee.children.length)
+      }
+    }, { immediate: true })
+
+    // Emit initial width for root level
+    onMounted(() => {
+      if (props.employee.children) {
+        emit('tree-width-update', props.employee.children.length)
+      }
+    })
 
     const toggleExpand = () => {
-      isExpanded.value = !isExpanded.value
+      toggleNodeExpansion(props.employee.id, !isNodeExpanded.value)
     }
 
     const getInitials = (name) => {
@@ -123,7 +144,7 @@ export default {
     }
 
     return {
-      isExpanded,
+      isNodeExpanded,
       toggleExpand,
       getInitials,
       getDepartmentColorClass
@@ -138,10 +159,11 @@ export default {
   flex-direction: column;
   align-items: center;
   position: relative;
-  padding: 0 1rem;
   width: 320px;
   min-width: 320px;
   box-sizing: border-box;
+  margin: 0;
+  z-index: 1;
 }
 
 .employee-card {
@@ -292,24 +314,35 @@ export default {
   width: max-content;
   padding-top: 2.5rem;
   min-width: max-content;
+  z-index: 1;
 }
 
 .children-wrapper {
   display: flex;
-  gap: 2rem;
+  gap: 3rem;
   justify-content: center;
   width: max-content;
   position: relative;
-  left: 50%;
-  transform: translateX(-50%);
+  margin: 0;
+  /* Prevent wrapping */
+  white-space: nowrap;
+  /* Prevent shrinking */
+  flex-shrink: 0;
 }
 
 .child-node {
   position: relative;
-  animation: slideIn 0.5s ease-out;
+  /* Ensure fixed width */
+  flex: 0 0 320px;
+  width: 320px;
+  min-width: 320px;
+  /* Add consistent spacing */
+  margin: 0 1rem;
+  z-index: 1;
+  box-sizing: border-box;
+  /* Smooth animation */
+  animation: slideIn 0.3s ease-out;
   animation-fill-mode: both;
-  animation-delay: calc(var(--child-index) * 0.1s);
-  min-width: max-content;
 }
 
 /* Expand/Collapse Animation */
@@ -347,26 +380,17 @@ export default {
   height: 2.5rem;
   background-color: #e5e7eb;
   transform: translateX(-50%);
+  z-index: 0;
 }
 
 .children-wrapper::before {
   content: '';
   position: absolute;
   top: 0;
-  left: 2rem;
-  right: 2rem;
+  left: 1rem;
+  right: 1rem;
   height: 2px;
   background-color: #e5e7eb;
-}
-
-.child-node::before {
-  content: '';
-  position: absolute;
-  top: -2.5rem;
-  left: 50%;
-  width: 2px;
-  height: 2.5rem;
-  background-color: #e5e7eb;
-  transform: translateX(-50%);
+  z-index: 0;
 }
 </style>

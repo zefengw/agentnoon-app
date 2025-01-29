@@ -26,7 +26,7 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, provide, computed } from 'vue'
 import Papa from 'papaparse'
 import EmployeeNode from './EmployeeNode.vue'
 
@@ -40,10 +40,13 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const employeesMap = new Map()
+    const expandedNodes = ref(new Set())
     
     // Memoization caches
     const descendantCountCache = new Map()
     const metricsCache = new Map()
+    const maxTreeWidth = ref(0)
+    const isWideTree = computed(() => maxTreeWidth.value > 3) // Consider tree wide if more than 3 nodes at any level
 
     const formatCost = (amount) => {
       if (amount >= 1000000000) {
@@ -121,6 +124,68 @@ export default {
       metricsCache.set(cacheKey, metrics)
       return metrics
     }
+
+    // Function to get all ancestors of an employee
+    const getAncestors = (employeeId) => {
+      const ancestors = new Set()
+      let currentId = employeeId
+      
+      while (currentId) {
+        const employee = employeesMap.get(currentId)
+        if (!employee || !employee.managerId) break
+        ancestors.add(employee.managerId)
+        currentId = employee.managerId
+      }
+      
+      return ancestors
+    }
+
+    // Function to handle node expansion
+    const toggleNodeExpansion = (employeeId, shouldExpand) => {
+      if (shouldExpand) {
+        const ancestors = getAncestors(employeeId)
+        const nodesToCollapse = new Set(expandedNodes.value)
+        nodesToCollapse.forEach(id => {
+          if (!ancestors.has(id) && id !== employeeId) {
+            expandedNodes.value.delete(id)
+          }
+        })
+        
+        expandedNodes.value.add(employeeId)
+
+        // Enhanced scroll handling
+        setTimeout(() => {
+          const element = document.querySelector(`[data-employee-id="${employeeId}"]`)
+          const wrapper = document.querySelector('.org-chart-wrapper')
+          const chart = document.querySelector('.org-chart')
+          
+          if (element && wrapper && chart) {
+            const elementRect = element.getBoundingClientRect()
+            const wrapperRect = wrapper.getBoundingClientRect()
+            const chartRect = chart.getBoundingClientRect()
+
+            // Calculate the element's position relative to the chart
+            const elementCenterX = elementRect.left + (elementRect.width / 2)
+            const wrapperCenterX = wrapperRect.left + (wrapperRect.width / 2)
+            
+            // Calculate the required scroll adjustment
+            const scrollAdjustment = elementCenterX - wrapperCenterX
+
+            // Apply smooth scrolling with the calculated adjustment
+            wrapper.scrollTo({
+              left: wrapper.scrollLeft + scrollAdjustment,
+              behavior: 'smooth'
+            })
+          }
+        }, 100)
+      } else {
+        expandedNodes.value.delete(employeeId)
+      }
+    }
+
+    // Provide the expanded nodes state and toggle function to all child components
+    provide('expandedNodes', expandedNodes)
+    provide('toggleNodeExpansion', toggleNodeExpansion)
 
     const processEmployeeData = (data) => {
       try {
@@ -216,6 +281,10 @@ export default {
       }
     }
 
+    const updateTreeWidth = (width) => {
+      maxTreeWidth.value = Math.max(maxTreeWidth.value, width)
+    }
+
     onMounted(() => {
       // Load and parse the CSV file from the correct location
       fetch('/data/Giga_Corp.csv')
@@ -248,7 +317,9 @@ export default {
     return {
       rootEmployee,
       loading,
-      error
+      error,
+      expandedNodes,
+      isWideTree
     }
   }
 }
@@ -262,76 +333,120 @@ export default {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
   overflow: hidden;
 }
 
 .org-chart-wrapper {
   width: 100%;
   height: calc(100vh - 4rem);
+  position: relative;
   overflow: auto;
   padding: 2rem;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
 .org-chart {
-  min-width: min-content;
-  min-height: min-content;
+  position: relative;
   display: flex;
   justify-content: center;
-  padding: 2rem;
+  /* Ensure minimum width is at least 3 full viewport widths */
+  min-width: calc(300vw);
+  /* Center the initial view */
+  transform: translateX(calc(100vw));
+  /* Add generous padding for expansion */
+  padding: 2rem calc(100vw) 2rem calc(100vw);
+  box-sizing: border-box;
+  /* Ensure the chart stays centered */
   margin: 0 auto;
-  width: max-content;
 }
 
 .chart-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0 100vw;
-  margin: 0 auto;
-  width: max-content;
   position: relative;
+  /* Allow content to grow */
+  width: max-content;
+  min-width: 320px;
 }
 
-/* Update the children container styles */
 .children-container {
-  position: relative;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
   width: max-content;
   padding-top: 2.5rem;
-  margin: 0 auto;
+  min-width: 100%;
 }
 
 .children-wrapper {
   display: flex;
-  gap: 2rem;
+  gap: 3rem;
   justify-content: center;
   width: max-content;
+  position: relative;
   margin: 0 auto;
+  min-width: 320px;
 }
 
-/* Scrollbar styling */
+/* Update scrollbar styling for better visibility */
 .org-chart-wrapper {
-  scrollbar-width: thin;
-  scrollbar-color: #CBD5E0 #EDF2F7;
+  scrollbar-width: auto;
+  scrollbar-color: #94A3B8 #EDF2F7;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 .org-chart-wrapper::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 
 .org-chart-wrapper::-webkit-scrollbar-track {
   background: #EDF2F7;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .org-chart-wrapper::-webkit-scrollbar-thumb {
-  background-color: #CBD5E0;
-  border-radius: 4px;
-  border: 2px solid #EDF2F7;
+  background-color: #94A3B8;
+  border-radius: 6px;
+  border: 3px solid #EDF2F7;
 }
 
 .org-chart-wrapper::-webkit-scrollbar-thumb:hover {
-  background-color: #A0AEC0;
+  background-color: #64748B;
+}
+
+/* Add styles for horizontal scroll indicators on both sides */
+.org-chart-wrapper::before,
+.org-chart-wrapper::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  pointer-events: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.org-chart-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.05), transparent);
+}
+
+.org-chart-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.05), transparent);
+}
+
+.org-chart-wrapper:hover::before,
+.org-chart-wrapper:hover::after {
+  opacity: 1;
 }
 
 /* Department color classes */
